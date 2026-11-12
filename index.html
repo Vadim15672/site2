@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Чёрная дыра — Three.js</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif; color: #d8dde6; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+  canvas.drag { cursor: grabbing; }
+  #title { position: fixed; left: 28px; top: 24px; pointer-events: none; transition: opacity 1.2s; }
+  #title h1 { font-size: 14px; font-weight: 600; margin: 0 0 5px; letter-spacing: .22em; text-transform: uppercase; color: #f4e8d6; }
+  #title p { margin: 0; font-size: 12px; opacity: .55; line-height: 1.5; }
+  #stats { position: fixed; right: 22px; top: 22px; font-size: 11px; opacity: .45; font-variant-numeric: tabular-nums; pointer-events: none; text-align: right; line-height: 1.6; }
+  #panel { position: fixed; left: 20px; bottom: 20px; width: 268px; max-height: calc(100vh - 120px); overflow: auto;
+    padding: 14px 16px 12px; background: rgba(10,12,18,.58); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.09); border-radius: 14px; font-size: 12px; transition: opacity .3s, transform .3s; }
+  #panel.hidden { opacity: 0; pointer-events: none; transform: translateY(8px); }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-bottom: 9px; }
+  .row label { opacity: .75; }
+  .row output { opacity: .5; font-variant-numeric: tabular-nums; }
+  .row input[type=range] { grid-column: 1 / -1; width: 100%; margin: 2px 0 0; accent-color: #ffb066; }
+  .chk { display: flex; align-items: center; gap: 8px; margin: 6px 0; opacity: .85; cursor: pointer; }
+  .chk input { accent-color: #ffb066; }
+  select, button { background: rgba(255,255,255,.08); color: inherit; border: 1px solid rgba(255,255,255,.12);
+    border-radius: 8px; padding: 5px 8px; font: inherit; cursor: pointer; }
+  select { width: 100%; }
+  .btns { display: flex; gap: 8px; margin-top: 10px; }
+  .btns button { flex: 1; }
+  button:hover, select:hover { background: rgba(255,255,255,.14); }
+  #hint { position: fixed; bottom: 24px; right: 24px; font-size: 11px; opacity: .4; text-align: right; line-height: 1.6; pointer-events: none; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #000; font-size: 12px; letter-spacing: .25em;
+    text-transform: uppercase; opacity: .9; transition: opacity 1.4s; z-index: 5; }
+  #loading.done { opacity: 0; pointer-events: none; }
+  #err { position: fixed; inset: 0; display: none; place-items: center; padding: 30px; text-align: center; background: #000; z-index: 9; }
+  html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+  #gear { display: none; position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    z-index: 3; padding: 10px 16px; border-radius: 22px; background: rgba(10,12,18,.58); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); font-size: 13px; }
+  /* телефон / сенсорный экран */
+  @media (pointer: coarse), (max-width: 720px) {
+    #title { left: max(16px, env(safe-area-inset-left, 0px)); top: max(14px, env(safe-area-inset-top, 0px)); }
+    #title h1 { font-size: 12px; }
+    #title p { font-size: 11px; }
+    #stats { right: max(14px, env(safe-area-inset-right, 0px)); top: max(14px, env(safe-area-inset-top, 0px)); font-size: 10px; }
+    #hint { left: max(16px, env(safe-area-inset-left, 0px)); right: auto; bottom: max(26px, env(safe-area-inset-bottom, 0px)); text-align: left; }
+    #gear { display: block; }
+    #panel { left: 12px; right: 12px; width: auto; bottom: calc(max(16px, env(safe-area-inset-bottom, 0px)) + 54px); max-height: 62vh; font-size: 13px; }
+    .row input[type=range] { height: 30px; }
+    select, button { padding: 9px 10px; }
+  }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="title">
+  <h1>Сингулярность</h1>
+  <p>Чёрная дыра Шварцшильда · трассировка геодезических<br>в реальном времени</p>
+</div>
+<div id="stats"></div>
+<div id="panel"></div>
+<div id="hint">ЛКМ — вращение · колесо — масштаб<br>H — скрыть панель · Пробел — автопилот · P — снимок</div>
+<button id="gear" aria-label="Настройки">Настройки</button>
+<div id="loading">Рождение звёзд…</div>
+<div id="err"><div><h2>WebGL 2 недоступен</h2><p>Для симуляции нужен браузер с WebGL 2, HDR-текстурами и аппаратным ускорением.</p></div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+
+/* ───────────────────────── GLSL: общие функции ───────────────────────── */
+const GLSL_NOISE = /* glsl */`
+float hash13(vec3 p3){
+  p3 = fract(p3 * .1031);
+  p3 += dot(p3, p3.zyx + 31.32);
+  return fract((p3.x + p3.y) * p3.z);
+}
+vec3 hash33(vec3 p3){
+  p3 = fract(p3 * vec3(.1031, .1030, .0973));
+  p3 += dot(p3, p3.yxz + 33.33);
+  return fract((p3.xxy + p3.yxx) * p3.zyx);
+}
+float noise3(vec3 x){
+  vec3 i = floor(x); vec3 f = fract(x);
+  f = f*f*(3.0 - 2.0*f);
+  return mix(mix(mix(hash13(i),                 hash13(i+vec3(1,0,0)), f.x),
+                 mix(hash13(i+vec3(0,1,0)),     hash13(i+vec3(1,1,0)), f.x), f.y),
+             mix(mix(hash13(i+vec3(0,0,1)),     hash13(i+vec3(1,0,1)), f.x),
+                 mix(hash13(i+vec3(0,1,1)),     hash13(i+vec3(1,1,1)), f.x), f.y), f.z);
+}
+float fbm(vec3 p, int oct){
+  float a = .5, s = 0.;
+  for (int i = 0; i < 8; i++){
+    if (i >= oct) break;
+    s += a * noise3(p);
+    p = p * 2.03 + vec3(1.7, 9.2, 3.1);
+    a *= .5;
+  }
+  return s;
+}
+`;
+
+const VERT = /* glsl */`
+varying vec2 vUv;
+void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
+`;
+
+/* ───────── Запекание неба: Млечный Путь, пыль, туманности (equirect) ───────── */
+const SKY_BAKE_FRAG = /* glsl */`
+precision highp float;
+varying vec2 vUv;
+${GLSL_NOISE}
+void main(){
+  float phi = (vUv.x - 0.5) * 6.28318530718;
+  float th  = (vUv.y - 0.5) * 3.14159265359;
+  vec3 d = vec3(cos(th)*cos(phi), sin(th), cos(th)*sin(phi));
+
+  // галактическая система координат
+  vec3 G  = normalize(vec3(0.30, 0.78, 0.55));
+  vec3 gx = normalize(cross(G, vec3(0.0, 0.0, 1.0)));
+  vec3 gy = cross(G, gx);
+  float b = asin(clamp(dot(d, G), -1.0, 1.0));
+  float l = atan(dot(d, gy), dot(d, gx));
+
+  float warp  = fbm(d*2.5 + 3.0, 4);
+  vec3  q     = d*3.0 + warp*1.5;
+  float thick = 0.13 + 0.07*noise3(d*3.0 + 1.0);
+  float band  = exp(-b*b/(2.0*thick*thick));
+  float clump = fbm(q*2.0, 6);
+  float bulge = exp(-l*l/0.35 - b*b/0.045);
+  float gas   = band * (0.25 + 1.7*pow(clump, 1.5));
+
+  float dustN = fbm(q*4.0 + 5.0, 6);
+  float dust  = smoothstep(0.50, 0.72, dustN) * exp(-b*b/(2.0*pow(thick*0.55, 2.0)));
+  float grain = 0.55 + 0.9*fbm(d*90.0, 3);          // неразрешённые звёзды
+
+  float lum = (gas + 1.3*bulge) * (1.0 - 0.92*dust) * grain;
+  vec3 warm = vec3(1.0, 0.76, 0.52), cool = vec3(0.62, 0.74, 1.0);
+  vec3 tint = mix(cool, warm, clamp(bulge*1.2 + 0.35*clump, 0.0, 1.0));
+  vec3 col = tint * lum * 0.22;
+
+  // эмиссионные и отражательные туманности
+  float neb1 = smoothstep(0.58, 0.85, fbm(d*2.2 + vec3(9.,1.,4.), 5)) * exp(-b*b/(2.0*0.35*0.35));
+  col += vec3(0.95, 0.18, 0.28) * neb1 * 0.05 * (0.5 + grain);
+  float neb2 = smoothstep(0.60, 0.88, fbm(d*3.1 + vec3(2.,7.,1.), 5)) * exp(-b*b/(2.0*0.40*0.40));
+  col += vec3(0.20, 0.40, 1.00) * neb2 * 0.04;
+  col += vec3(0.002, 0.003, 0.006);
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+/* ───────────────── Основной шейдер: геодезические Шварцшильда ───────────────── */
+const BH_FRAG = /* glsl */`
+precision highp float;
+varying vec2 vUv;
+uniform vec2  uRes;
+uniform float uTime, uTanHalf, uPixAngle, uRin, uRout, uTemp, uDiskGain, uHaze, uSkyGain, uStarGain;
+uniform vec3  uCamPos;
+uniform mat3  uCamRot;
+uniform int   uSteps;
+uniform sampler2D tSky;
+#define MAXSTEPS 720
+${GLSL_NOISE}
+
+// Чёрное тело: температура в К -> линейный RGB (аппроксимация)
+vec3 blackbody(float K){
+  float t = clamp(K, 1000.0, 40000.0) / 100.0;
+  vec3 c;
+  if (t <= 66.0){
+    c.r = 1.0;
+    c.g = clamp(0.39008157877 * log(t) - 0.63184144379, 0.0, 1.0);
+  } else {
+    c.r = clamp(1.29293618606 * pow(t - 60.0, -0.1332047592), 0.0, 1.0);
+    c.g = clamp(1.12989086090 * pow(t - 60.0, -0.0755148492), 0.0, 1.0);
+  }
+  if (t >= 66.0) c.b = 1.0;
+  else if (t <= 19.0) c.b = 0.0;
+  else c.b = clamp(0.54320678911 * log(t - 10.0) - 1.19625408914, 0.0, 1.0);
+  return pow(c, vec3(2.2));
+}
+
+// ---------- Звёздное небо ----------
+vec2 skyUV(vec3 d){
+  return vec2(atan(d.z, d.x) * 0.15915494309 + 0.5, asin(clamp(d.y, -1.0, 1.0)) * 0.31830988618 + 0.5);
+}
+vec3 starLayer(vec3 d, float scale, float prob, float gain, float seed){
+  vec3 p  = d * scale;
+  vec3 id = floor(p);
+  vec3 f  = fract(p);
+  if (hash13(id * 1.37 + seed + 11.0) > prob) return vec3(0.0);
+  vec3 sp = 0.25 + 0.5 * hash33(id + seed);
+  float R = clamp(1.2 * uPixAngle * scale, 0.06, 0.28);
+  float x = length(f - sp) / R;
+  float k = max(0.0, 1.0 - x*x); k *= k;
+  if (k <= 0.0) return vec3(0.0);
+  float m = hash13(id + seed * 7.7 + 3.1);
+  float flux = gain * (0.08 + 3.2 * pow(m, 10.0));
+  float t = hash13(id + seed * 3.3 + 8.7);
+  vec3 c = mix(vec3(1.0, 0.55, 0.32), mix(vec3(1.0, 0.95, 0.9), vec3(0.6, 0.75, 1.0), smoothstep(0.55, 1.0, t)), smoothstep(0.0, 0.5, t));
+  return c * flux * k;
+}
+vec3 skyColor(vec3 d){
+  vec3 raw = texture2D(tSky, skyUV(d)).rgb;
+  float dens = clamp(dot(raw, vec3(0.33)) * 2.5, 0.0, 1.0);
+  float pm = 0.4 + 2.2 * dens;
+  vec3 s = raw * uSkyGain;
+  s += starLayer(d,  48.0, 0.30*pm, 1.6, 1.0) * uStarGain;
+  s += starLayer(d,  95.0, 0.30*pm, 1.0, 2.0) * uStarGain;
+  s += starLayer(d, 170.0, 0.28*pm, 0.8, 3.0) * uStarGain;
+  s += starLayer(d, 260.0, 0.30*pm, 0.7, 4.0) * uStarGain;
+  return s;
+}
+
+// ---------- Аккреционный диск ----------
+// профиль температуры тонкого диска (Шакура–Сюняев), нормирован на 1 у внутреннего края
+float tprof(float r){
+  float x = uRin / r;
+  return pow(x, 0.75) * pow(max(1.0 - 0.85*sqrt(x), 0.0), 0.25) / 0.622;
+}
+// g = ν_наблюдаемая / ν_излучённая: гравитационное красное смещение × допплер
+float gfactor(vec3 hp, vec3 vd){
+  float r = max(length(hp.xz), 1.05);
+  float beta = min(sqrt(0.5 / max(r - 1.0, 0.05)), 0.9);   // орбитальная скорость, c=1, r_s=1
+  vec3 tang = normalize(vec3(-hp.z, 0.0, hp.x) + 1e-6);
+  float gamma = inversesqrt(1.0 - beta*beta);
+  float D = 1.0 / (gamma * (1.0 + beta * dot(tang, vd)));  // vd — направление трассируемого луча (камера → сцена)
+  return sqrt(max(1.0 - 1.0/r, 0.0)) * D;
+}
+// турбулентность с фильтрацией по размеру пикселя (антиалиасинг по «мипам»)
+float turb(vec3 p, float fpR, float fq){
+  float s = 0.0, amp = 0.5;
+  for (int i = 0; i < 6; i++){
+    float fade = 1.0 - smoothstep(0.25, 0.9, fpR * fq);
+    s += amp * (0.5 + fade * (noise3(p) - 0.5));
+    p = p * 2.1 + vec3(3.7, 1.3, 8.1);
+    fq *= 2.1; amp *= 0.5;
+  }
+  return s;
+}
+float pat(float r, float a, float fpR){
+  float sp = a + 2.2 * log(r);                      // спиральная закрутка
+  float n1 = turb(vec3(3.5*cos(sp),  3.5*sin(sp),  11.0*r),        fpR, 11.0);
+  float n2 = turb(vec3(9.0*cos(a+1.3), 9.0*sin(a+1.3), 3.5*r+20.0), fpR, 3.5);
+  float v = mix(n1, n2, 0.4);
+  float ring = 1.0 - smoothstep(0.05, 0.35, fpR * 38.0 / 6.2832);
+  v += ring * 0.05 * sin(r * 38.0 + 6.0 * n1);
+  return v;
+}
+float diskTexture(float r, float a, float fpR){
+  // дифференциальное вращение, две фазы со смешиванием (flow-map), чтобы узор не «закручивался» бесконечно
+  const float T0 = 30.0;
+  float ph1 = fract(uTime / T0), ph2 = fract(uTime / T0 + 0.5);
+  float w1 = 1.0 - abs(2.0*ph1 - 1.0);
+  float Om = 0.7071 * pow(r, -1.5);
+  float v = w1 * pat(r, a - Om*ph1*T0, fpR) + (1.0 - w1) * pat(r, a - Om*ph2*T0, fpR);
+  return clamp((v - 0.30) * 2.4, 0.0, 1.5);
+}
+vec3 shadeDisk(vec3 hit, vec3 vd, float dist, out float alpha){
+  float r   = length(hit.xz);
+  float ang = atan(hit.z, hit.x);
+  float f   = tprof(r);
+  float gg  = gfactor(hit, vd);
+
+  float vy = max(abs(vd.y), 0.03);
+  vec2  hd = normalize(vd.xz + 1e-5);
+  float cg = dot(hd, hit.xz / r);
+  float fpR = uPixAngle * dist * sqrt(cg*cg / (vy*vy) + 1.0 - cg*cg);
+
+  float tex = diskTexture(r, ang, fpR);
+  float Tobs = uTemp * f * gg * (0.88 + 0.24 * tex);
+  vec3  c = blackbody(Tobs);
+  float I = pow(max(f * gg, 0.0), 2.6) * uDiskGain * (0.30 + 1.1 * tex) * 0.55;
+
+  float aIn  = smoothstep(uRin, uRin + 0.08, r);
+  float aOut = 1.0 - smoothstep(uRout * 0.55, uRout, r);
+  alpha = aIn * aOut * clamp(0.25 + 0.95 * tex, 0.0, 1.0);
+  return c * I;
+}
+
+void main(){
+  vec2 p = (gl_FragCoord.xy - 0.5 * uRes) / min(uRes.x, uRes.y);   // fov задаётся по меньшей стороне — в портрете диск не обрезается
+  vec3 rd = normalize(uCamRot * vec3(p * 2.0 * uTanHalf, 1.0));
+
+  vec3 pos = uCamPos, vel = rd;
+  vec3 hv = cross(pos, vel);
+  float h2 = dot(hv, hv);
+  float h  = sqrt(h2);
+
+  vec3 col = vec3(0.0);
+  float T = 1.0;
+  int state = 0;                                  // 0 — не закончили, 1 — поглощён, 2 — улетел
+
+  for (int i = 0; i < MAXSTEPS; i++){
+    if (i >= uSteps) break;
+    float r2 = dot(pos, pos);
+    float r  = sqrt(r2);
+    if (r < 1.0) { state = 1; break; }
+    if (r > 100.0 && dot(pos, vel) > 0.0) { state = 2; break; }
+
+    float dt = min(0.07 * r, 0.05 * r2 / max(h, 1e-3));
+    dt = max(dt, 0.003);
+
+    float rr = length(pos.xz);
+    float Hs = 0.03 + 0.045 * rr;                 // масштабная высота диска
+    bool inSlab = abs(pos.y) < 3.0 * Hs && rr > uRin * 0.85 && rr < uRout * 1.2;
+    if (inSlab) dt = min(dt, 0.4 * Hs / max(abs(vel.y) / length(vel), 0.08));
+
+    // геодезическая Шварцшильда в декартовой форме: a = -1.5 h² x / r⁵  (r_s = 1)
+    vec3 acc  = -1.5 * h2 * pos / (r2 * r2 * r);
+    vec3 nvel = vel + acc * dt;
+    vec3 npos = pos + nvel * dt;
+
+    // тонкий диск: пересечение плоскости y = 0
+    if (pos.y * npos.y < 0.0){
+      float f = pos.y / (pos.y - npos.y);
+      vec3 hit = mix(pos, npos, f);
+      float hr = length(hit.xz);
+      if (hr > uRin && hr < uRout){
+        vec3 vd = normalize(mix(vel, nvel, f));
+        float a;
+        vec3 e = shadeDisk(hit, vd, length(hit - uCamPos), a);
+        col += T * e * a;
+        T *= (1.0 - a);
+      }
+    }
+
+    // объёмное свечение газа вокруг диска
+    if (inSlab && uHaze > 0.0){
+      float dens = exp(-0.5 * pos.y * pos.y / (Hs * Hs))
+                 * smoothstep(uRin * 0.85, uRin * 1.3, rr)
+                 * (1.0 - smoothstep(uRout * 0.5, uRout * 1.2, rr));
+      float fT = tprof(max(rr, uRin));
+      float gg = gfactor(pos, normalize(vel));
+      float path = dt * length(vel);
+      col += T * blackbody(uTemp * fT * gg) * pow(max(fT * gg, 0.0), 3.0) * uHaze * dens * path * 0.35;
+    }
+
+    pos = npos; vel = nvel;
+    if (T < 0.01) break;
+  }
+
+  if (state == 0 && dot(pos, pos) < 36.0) state = 1;   // застрял у фотонной сферы
+  if (state != 1 && T > 0.01) col += T * skyColor(normalize(vel));
+
+  col = min(max(col, 0.0), vec3(80.0));
+  if (!(col.r == col.r) || !(col.g == col.g) || !(col.b == col.b)) col = vec3(0.0);
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+/* ───────────── Финальный проход: тон-маппинг, виньетка, аберрация, зерно ───────────── */
+const FINAL_SHADER = {
+  uniforms: { tDiffuse: { value: null }, uExposure: { value: 1.2 }, uTime: { value: 0 }, uAberr: { value: 0.012 },
+              uGrain: { value: 0.025 }, uRes: { value: new THREE.Vector2(1, 1) } },
+  vertexShader: VERT,
+  fragmentShader: /* glsl */`
+    precision highp float;
+    varying vec2 vUv;
+    uniform sampler2D tDiffuse;
+    uniform float uExposure, uTime, uAberr, uGrain;
+    uniform vec2 uRes;
+    vec3 aces(vec3 x){
+      const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+      return clamp((x*(a*x + b)) / (x*(c*x + d) + e), 0.0, 1.0);
+    }
+    float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+    void main(){
+      vec2 c = vUv - 0.5;
+      float r2 = dot(c, c);
+      vec2 off = c * r2 * uAberr;
+      vec3 col;
+      col.r = texture2D(tDiffuse, vUv - off).r;
+      col.g = texture2D(tDiffuse, vUv).g;
+      col.b = texture2D(tDiffuse, vUv + off).b;
+      col *= uExposure;
+      col *= 1.0 - 0.6 * smoothstep(0.18, 0.62, r2 * 1.6);
+      col = aces(col);
+      col = pow(col, vec3(1.0 / 2.2));
+      col += (hash12(gl_FragCoord.xy + fract(uTime) * 91.7) - 0.5) * uGrain;
+      gl_FragColor = vec4(col, 1.0);
+    }`
+};
+
+/* ───────────────────────────── Three.js: сцена ───────────────────────────── */
+const canvas = document.getElementById('c');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
+  if (!renderer.capabilities.isWebGL2) throw new Error('no webgl2');
+  if (!(renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float'))) throw new Error('no float render targets');
+} catch (e) {
+  document.getElementById('err').style.display = 'grid';
+  throw e;
+}
+renderer.setClearColor(0x000000, 1);
+
+// Запекаем небо в HDR-текстуру 4096×2048 один раз
+const SKY_W = Math.min(4096, renderer.capabilities.maxTextureSize), SKY_H = SKY_W / 2;
+const skyRT = new THREE.WebGLRenderTarget(SKY_W, SKY_H, {
+  type: THREE.HalfFloatType, format: THREE.RGBAFormat,
+  minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+  wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping,
+  generateMipmaps: false, depthBuffer: false
+});
+// Запекание идёт полосами по кадрам: полное качество, но телефонный GPU не упирается в таймаут драйвера
+async function bakeSky() {
+  const bakeMat = new THREE.ShaderMaterial({ vertexShader: VERT, fragmentShader: SKY_BAKE_FRAG, depthTest: false, depthWrite: false });
+  const quad = new FullScreenQuad(bakeMat);
+  const N = 32, rowH = SKY_H / N, label = document.getElementById('loading');
+  skyRT.scissorTest = true;
+  for (let i = 0; i < N; i++) {
+    skyRT.scissor.set(0, i * rowH, SKY_W, rowH);
+    renderer.setRenderTarget(skyRT);
+    quad.render(renderer);
+    renderer.getContext().flush();
+    label.textContent = 'Рождение звёзд… ' + Math.round((i + 1) / N * 100) + '%';
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  skyRT.scissorTest = false;
+  renderer.setRenderTarget(null);
+  quad.dispose(); bakeMat.dispose();
+}
+
+const bhMat = new THREE.ShaderMaterial({
+  vertexShader: VERT, fragmentShader: BH_FRAG, depthTest: false, depthWrite: false,
+  uniforms: {
+    uRes: { value: new THREE.Vector2(1, 1) }, uTime: { value: 0 },
+    uTanHalf: { value: Math.tan(THREE.MathUtils.degToRad(50) / 2) }, uPixAngle: { value: 0.001 },
+    uRin: { value: 3.0 }, uRout: { value: 15.0 }, uTemp: { value: 6500 },
+    uDiskGain: { value: 2.0 }, uHaze: { value: 0.22 }, uSkyGain: { value: 0.65 }, uStarGain: { value: 1.0 },
+    uCamPos: { value: new THREE.Vector3(0, 0, 30) }, uCamRot: { value: new THREE.Matrix3() },
+    uSteps: { value: 440 }, tSky: { value: skyRT.texture }
+  }
+});
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new ShaderPass(bhMat));
+const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.45, 0.6, 1.1);
+composer.addPass(bloom);
+const finalPass = new ShaderPass(FINAL_SHADER);
+composer.addPass(finalPass);
+
+/* ───────────────────────────── Состояние и UI ───────────────────────────── */
+const QUALITY = { low: { steps: 200, maxScale: 0.75 }, medium: { steps: 300, maxScale: 1.0 },
+                  high: { steps: 440, maxScale: 1.5 }, ultra: { steps: 680, maxScale: 2.0 } };
+const dpr = window.devicePixelRatio || 1;
+const isMobile = matchMedia('(pointer: coarse)').matches || innerWidth < 720;
+const S = {
+  az: 2.2, el: 0.11, dist: 27, tAz: 2.2, tEl: 0.11, tDist: 27,
+  auto: true, adaptive: true, quality: 'high',
+  scale: Math.min(dpr, isMobile ? 2 : 1.25), ceiling: 2, speed: 1.0, simTime: 0, clock: 0
+};
+if (innerWidth < innerHeight) S.dist = S.tDist = 32;   // портрет: отъезжаем, чтобы диск целиком влез в кадр
+
+const controls = [
+  { id: 'el',   label: 'Наклон камеры',      min: -80, max: 80, step: 0.5, get: () => S.tEl * 57.2958, set: v => S.tEl = v / 57.2958, fmt: v => v.toFixed(1) + '°' },
+  { id: 'dist', label: 'Расстояние (r_s)',   min: 7, max: 70, step: 0.1, get: () => S.tDist, set: v => S.tDist = v, fmt: v => v.toFixed(1) },
+  { id: 'temp', label: 'Температура диска',  min: 3000, max: 14000, step: 100, get: () => bhMat.uniforms.uTemp.value, set: v => bhMat.uniforms.uTemp.value = v, fmt: v => v + ' K' },
+  { id: 'gain', label: 'Яркость диска',      min: 0.2, max: 3, step: 0.05, get: () => bhMat.uniforms.uDiskGain.value, set: v => bhMat.uniforms.uDiskGain.value = v, fmt: v => v.toFixed(2) },
+  { id: 'haze', label: 'Газовое гало',       min: 0, max: 2, step: 0.05, get: () => bhMat.uniforms.uHaze.value, set: v => bhMat.uniforms.uHaze.value = v, fmt: v => v.toFixed(2) },
+  { id: 'bloom',label: 'Свечение',           min: 0, max: 2, step: 0.05, get: () => bloom.strength, set: v => bloom.strength = v, fmt: v => v.toFixed(2) },
+  { id: 'exp',  label: 'Экспозиция',         min: 0.3, max: 3, step: 0.05, get: () => finalPass.uniforms.uExposure.value, set: v => finalPass.uniforms.uExposure.value = v, fmt: v => v.toFixed(2) },
+  { id: 'spd',  label: 'Скорость времени',   min: 0, max: 4, step: 0.05, get: () => S.speed, set: v => S.speed = v, fmt: v => v.toFixed(2) + '×' },
+];
+const panel = document.getElementById('panel');
+const sliders = {};
+for (const c of controls) {
+  const row = document.createElement('div'); row.className = 'row';
+  row.innerHTML = `<label for="s_${c.id}">${c.label}</label><output></output><input id="s_${c.id}" type="range" min="${c.min}" max="${c.max}" step="${c.step}">`;
+  const inp = row.querySelector('input'), out = row.querySelector('output');
+  inp.value = c.get(); out.textContent = c.fmt(+inp.value);
+  inp.addEventListener('input', () => { c.set(+inp.value); out.textContent = c.fmt(+inp.value); });
+  sliders[c.id] = { inp, out, c };
+  panel.appendChild(row);
+}
+panel.insertAdjacentHTML('beforeend', `
+  <div class="row"><label>Качество</label><span></span>
+    <select id="q" style="grid-column:1/-1">
+      <option value="low">Низкое</option><option value="medium">Среднее</option>
+      <option value="high" selected>Высокое</option><option value="ultra">Ультра</option>
+    </select></div>
+  <label class="chk"><input type="checkbox" id="auto" checked> Автопилот камеры</label>
+  <label class="chk"><input type="checkbox" id="adapt" checked> Адаптивное разрешение</label>
+  <div class="btns"><button id="shot">Снимок</button><button id="hide">Скрыть (H)</button></div>`);
+const $ = id => document.getElementById(id);
+$('q').addEventListener('change', e => { S.quality = e.target.value; S.ceiling = Math.min(dpr, QUALITY[S.quality].maxScale);
+  S.scale = Math.min(S.scale, S.ceiling); bhMat.uniforms.uSteps.value = QUALITY[S.quality].steps; applySize(); });
+$('auto').addEventListener('change', e => S.auto = e.target.checked);
+$('adapt').addEventListener('change', e => S.adaptive = e.target.checked);
+let wantShot = false;
+$('shot').addEventListener('click', () => wantShot = true);
+$('hide').addEventListener('click', () => panel.classList.add('hidden'));
+$('gear').addEventListener('click', () => panel.classList.toggle('hidden'));
+if (isMobile) {
+  panel.classList.add('hidden');
+  $('hide').textContent = 'Закрыть';
+  $('hint').innerHTML = 'Тяните — вращение<br>щипок — масштаб';
+}
+if (window.self !== window.top) $('shot').style.display = 'none';   // во встроенном окне скачивание заблокировано
+addEventListener('keydown', e => {
+  if (e.key === 'h' || e.key === 'H' || e.key === 'р' || e.key === 'Р') panel.classList.toggle('hidden');
+  if (e.code === 'Space') { e.preventDefault(); S.auto = !S.auto; $('auto').checked = S.auto; }
+  if (e.code === 'KeyP') wantShot = true;
+});
+
+/* ───────────── Управление камерой ───────────── */
+const ptrs = new Map();
+const EL_MAX = 1.5;
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  canvas.classList.add('drag');
+});
+const endPtr = e => { ptrs.delete(e.pointerId); if (!ptrs.size) canvas.classList.remove('drag'); };
+canvas.addEventListener('pointerup', endPtr);
+canvas.addEventListener('pointercancel', endPtr);
+canvas.addEventListener('pointermove', e => {
+  const p = ptrs.get(e.pointerId); if (!p) return;
+  if (ptrs.size === 1) {
+    S.tAz -= (e.clientX - p.x) * 0.005;
+    S.tEl = THREE.MathUtils.clamp(S.tEl + (e.clientY - p.y) * 0.005, -EL_MAX, EL_MAX);
+  } else if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()];
+    const d0 = Math.hypot(a.x - b.x, a.y - b.y);
+    p.x = e.clientX; p.y = e.clientY;
+    const d1 = Math.hypot(a.x - b.x, a.y - b.y);
+    if (d1 > 1) S.tDist = THREE.MathUtils.clamp(S.tDist * d0 / d1, 7, 70);
+    return;
+  }
+  p.x = e.clientX; p.y = e.clientY;
+});
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  S.tDist = THREE.MathUtils.clamp(S.tDist * Math.exp(e.deltaY * 0.001), 7, 70);
+}, { passive: false });
+
+/* ───────────── Размер / рендер-цикл ───────────── */
+function applySize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setPixelRatio(S.scale);
+  renderer.setSize(w, h, false);
+  composer.setPixelRatio(S.scale);
+  composer.setSize(w, h);
+  const bw = Math.round(w * S.scale), bh = Math.round(h * S.scale);
+  bhMat.uniforms.uRes.value.set(bw, bh);
+  finalPass.uniforms.uRes.value.set(bw, bh);
+  bhMat.uniforms.uPixAngle.value = 2 * bhMat.uniforms.uTanHalf.value / Math.min(bw, bh);
+}
+S.ceiling = Math.min(dpr, QUALITY[S.quality].maxScale);
+bhMat.uniforms.uSteps.value = QUALITY[S.quality].steps;
+applySize();
+addEventListener('resize', applySize);
+
+const up = new THREE.Vector3(0, 1, 0), camPos = new THREE.Vector3(), fwd = new THREE.Vector3(), right = new THREE.Vector3(), upv = new THREE.Vector3();
+const stats = $('stats');
+let last = performance.now(), fpsAcc = 0, fpsN = 0, statT = 0, adaptT = 0, frames = 0;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min((now - last) / 1000, 0.1); last = now;
+  S.clock += dt; S.simTime += dt * S.speed;
+
+  if (S.auto && !ptrs.size) S.tAz += dt * 0.035;
+  const k = 1 - Math.exp(-dt * 7);
+  S.az += (S.tAz - S.az) * k; S.el += (S.tEl - S.el) * k; S.dist += (S.tDist - S.dist) * k;
+  const el = THREE.MathUtils.clamp(S.el + (S.auto ? 0.04 * Math.sin(S.clock * 0.12) : 0), -EL_MAX, EL_MAX);
+
+  camPos.set(Math.cos(el) * Math.cos(S.az), Math.sin(el), Math.cos(el) * Math.sin(S.az)).multiplyScalar(S.dist);
+  fwd.copy(camPos).normalize().negate();
+  right.crossVectors(fwd, up).normalize();
+  upv.crossVectors(right, fwd);
+  const u = bhMat.uniforms;
+  u.uCamPos.value.copy(camPos);
+  u.uCamRot.value.set(right.x, upv.x, fwd.x, right.y, upv.y, fwd.y, right.z, upv.z, fwd.z);
+  u.uTime.value = S.simTime;
+  finalPass.uniforms.uTime.value = S.clock;
+
+  composer.render();
+
+  if (wantShot) {
+    wantShot = false;
+    canvas.toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'black-hole.png'; a.click(); }, 'image/png');
+  }
+
+  // слайдер наклона следует за камерой
+  const s = sliders.el; if (document.activeElement !== s.inp) { s.inp.value = S.tEl * 57.2958; s.out.textContent = s.c.fmt(+s.inp.value); }
+  const sd = sliders.dist; if (document.activeElement !== sd.inp) { sd.inp.value = S.tDist; sd.out.textContent = sd.c.fmt(S.tDist); }
+
+  // FPS + адаптивное разрешение
+  frames++;
+  if (dt < 0.1) { fpsAcc += dt; fpsN++; }
+  statT += dt; adaptT += dt;
+  if (statT > 0.5 && fpsN) {
+    const avg = fpsAcc / fpsN;
+    stats.innerHTML = `${(1 / avg).toFixed(0)} FPS<br>${Math.round(innerWidth * S.scale)}×${Math.round(innerHeight * S.scale)} · ${QUALITY[S.quality].steps} шагов`;
+    if (S.adaptive && frames > 40 && adaptT > 1.5) {
+      adaptT = 0;
+      // на телефоне режем разрешение только при совсем низком FPS (<~20), иначе держим полное качество
+      const slow = isMobile ? 0.05 : 0.026, minScale = isMobile ? 0.6 : 0.4;
+      if (avg > slow && S.scale > minScale) { S.ceiling = Math.min(S.ceiling, S.scale * 0.98); S.scale = Math.max(minScale, S.scale * 0.88); applySize(); }
+      else if (avg < 0.0185 && S.scale < Math.min(S.ceiling, dpr, QUALITY[S.quality].maxScale) - 0.01) { S.scale = Math.min(S.scale * 1.08, S.ceiling, dpr, QUALITY[S.quality].maxScale); applySize(); }
+    }
+    statT = 0; fpsAcc = 0; fpsN = 0;
+  }
+  if (frames === 3) {
+    $('loading').classList.add('done');
+    setTimeout(() => { $('title').style.opacity = 0.0; }, 9000);
+  }
+}
+bakeSky().then(() => requestAnimationFrame(frame));
+window.__bh ={ S, bhMat, bloom, finalPass, applySize, composer };
+</script>
+</body>
+</html>
